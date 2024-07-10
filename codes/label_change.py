@@ -21,5 +21,5 @@ def update_labels_in_directory(directory_path):
             update_labels_in_file(file_path)
 
 # 예제 사용
-directory_path = 'labels'
+directory_path = 'suicuide'
 update_labels_in_directory(directory_path)
