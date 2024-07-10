@@ -6,4 +6,4 @@ print(device)
 print("CUDA Available: ", torch.cuda.is_available())
 print("CUDA Device Count: ", torch.cuda.device_count())
 # YOLOv5 학습 실행
-subprocess.run(['python', 'train.py', '--img', '640', '--batch', '16', '--epochs', '30', '--data', 'data/dataset.yaml', '--weights', 'yolov5s.pt'])
+subprocess.run(['python', 'train.py', '--img', '640', '--batch', '16', '--epochs', '50', '--data', 'data/dataset.yaml', '--weights', 'yolov5s.pt'])

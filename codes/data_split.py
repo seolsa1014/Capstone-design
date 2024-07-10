@@ -1,41 +1,49 @@
 import os
 import random
-import shutil
+from glob import glob
 
-# 이미지가 저장된 디렉터리 경로
-image_dir = '../dataset/images/'
+# 디렉토리 경로 설정
+base_dir = '../dataset/images'
+output_dir = '../yolov5'
 
-# 레이블이 저장된 디렉터리 경로
-label_dir = '../dataset/labels/'
-
-# train, val, test 비율
+# 비율 설정
 train_ratio = 0.7
 val_ratio = 0.2
 test_ratio = 0.1
 
-# 모든 이미지 파일 경로 읽기
-image_files = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.endswith('.jpg')]
+# 파일 경로를 저장할 리스트 초기화
+train_files = []
+val_files = []
+test_files = []
 
-# 파일 경로를 랜덤하게 섞기
-random.shuffle(image_files)
+# 각 클래스 폴더를 순회
+for class_dir in os.listdir(base_dir):
+    class_path = os.path.join(base_dir, class_dir)
+    if os.path.isdir(class_path):
+        # 클래스 폴더 내의 모든 이미지 파일 경로를 가져옴
+        image_files = glob(os.path.join(class_path, '*.jpg'))
+        
+        # 파일을 무작위로 섞음
+        random.shuffle(image_files)
+        
+        # 각 셋의 파일 개수 계산
+        total_count = len(image_files)
+        train_count = int(total_count * train_ratio)
+        val_count = int(total_count * val_ratio)
+        test_count = total_count - train_count - val_count
+        
+        # 파일을 각각의 셋에 할당
+        train_files.extend(image_files[:train_count])
+        val_files.extend(image_files[train_count:train_count + val_count])
+        test_files.extend(image_files[train_count + val_count:])
 
-# 학습, 검증, 테스트 데이터셋으로 나누기
-train_count = int(len(image_files) * train_ratio)
-val_count = int(len(image_files) * val_ratio)
+# 함수: 파일 경로를 텍스트 파일로 저장
+def save_file_paths(file_paths, output_path):
+    with open(output_path, 'w') as f:
+        for file_path in file_paths:
+            f.write(f"{file_path}\n")
 
-train_files = image_files[:train_count]
-val_files = image_files[train_count:train_count + val_count]
-test_files = image_files[train_count + val_count:]
-
-# 파일 경로를 txt 파일로 저장하기
-with open('../dataset/train.txt', 'w') as f:
-    for file in train_files:
-        f.write(f"{file}\n")
-
-with open('../dataset/val.txt', 'w') as f:
-    for file in val_files:
-        f.write(f"{file}\n")
-
-with open('../dataset/test.txt', 'w') as f:
-    for file in test_files:
-        f.write(f"{file}\n")
+# 파일 경로 저장
+save_file_paths(train_files, os.path.join(output_dir, 'train.txt'))
+save_file_paths(val_files, os.path.join(output_dir, 'val.txt'))
+save_file_paths(test_files, os.path.join(output_dir, 'test.txt'))
