@@ -5,6 +5,7 @@ from PIL import Image, ImageTk
 import os
 import cv2  # OpenCV 라이브러리
 import threading  # 스레드 라이브러리 추가
+import shutil  # 파일 복사를 위한 라이브러리 추가
 
 class YOLOApp:
     def __init__(self, root):
@@ -21,6 +22,10 @@ class YOLOApp:
         self.upload_btn = tk.Button(root, text="이미지/영상 파일 업로드", command=self.upload_file, font=("Arial", 14), bg="#4CAF50", fg="white", padx=20, pady=10)
         self.upload_btn.pack(pady=20)
 
+        # 모자이크 버튼 추가
+        self.mosaic_btn = tk.Button(root, text="모자이크 적용", command=self.apply_mosaic, font=("Arial", 14), bg="#FF5722", fg="white", padx=20, pady=10)
+        self.mosaic_btn.pack(pady=20)
+
         # 처리 상태 레이블
         self.status_label = tk.Label(root, text="", font=("Arial", 12, "italic"), bg="#f0f0f0")
         self.status_label.pack(pady=10)
@@ -34,6 +39,7 @@ class YOLOApp:
         self.video_path = None
         self.is_playing = False  # 영상 재생 상태
         self.after_id = None  # after 호출 ID 저장
+        self.mosaic_image_path = None  # 모자이크 이미지 경로
 
     def upload_file(self):
         # 파일 다이얼로그를 통해 이미지 또는 영상 파일 선택
@@ -61,6 +67,10 @@ class YOLOApp:
                 '--save-txt',  # 결과를 txt로 저장
                 '--save-conf',  # 신뢰도도 함께 저장
             ])
+            
+            # 원본 이미지도 저장 (이름을 _original로 변경)
+            self.save_original_image(file_path)
+
             # YOLO 처리 완료 후 결과를 표시
             self.display_results(file_path)
 
@@ -68,6 +78,14 @@ class YOLOApp:
             self.status_label.config(text="오류 발생")  # 오류 메시지 업데이트
             messagebox.showerror("Error", f"오류 발생: {str(e)}")
             self.reset_video_display()
+
+    def save_original_image(self, file_path):
+        # 원본 이미지 저장
+        latest_exp_path = self.get_latest_exp_folder()
+        if latest_exp_path:
+            original_image_path = os.path.join(latest_exp_path, os.path.basename(file_path).replace('.', '_original.'))
+            shutil.copy(file_path, original_image_path)  # 원본 이미지를 새로운 경로로 복사
+            print(f"원본 이미지 저장 완료: {original_image_path}")  # 저장 완료 메시지
 
     def display_results(self, file_path):
         # 파일 확장자 확인
@@ -81,7 +99,6 @@ class YOLOApp:
                 self.video_path = result_video_path
                 self.play_video(result_video_path)  # 결과 영상 재생
             elif file_extension == '.gif':
-                # GIF 파일인 경우 MP4 파일로 결과를 표시
                 result_video_path = os.path.join(latest_exp_path, os.path.splitext(os.path.basename(file_path))[0] + '.mp4')
                 if os.path.exists(result_video_path):  # MP4 파일이 존재하는지 확인
                     self.video_path = result_video_path
@@ -91,10 +108,29 @@ class YOLOApp:
             else:
                 result_image_path = os.path.join(latest_exp_path, os.path.basename(file_path))  # 이미지 결과 파일 경로
                 self.show_image(result_image_path)  # 결과 이미지 표시
+                self.mosaic_image_path = result_image_path  # 모자이크에 사용할 이미지 경로 저장
 
             self.status_label.config(text="처리 완료!")  # 처리 완료 상태로 변경
         else:
             self.status_label.config(text="결과 폴더를 찾을 수 없습니다.")  # 결과 폴더가 없을 경우 처리
+
+    def apply_mosaic(self):
+        if self.mosaic_image_path:
+             # 모자이크 적용
+            mosaic_script_path = 'mosaic.py'  # mosaic.py 경로
+            subprocess.run(['python', mosaic_script_path])
+
+            # 모자이크 이미지 경로 설정 (이름을 _original_mosaic로 변경)
+            mosaic_image_file = os.path.splitext(os.path.basename(self.mosaic_image_path))[0] + '_original_mosaic.jpg'
+            latest_exp_path = self.get_latest_exp_folder()
+            mosaic_image_path = os.path.join(latest_exp_path, mosaic_image_file)
+
+            # 모자이크 이미지 표시
+            self.show_image(mosaic_image_path)
+            self.status_label.config(text="모자이크 적용 완료!")  # 상태 레이블 업데이트
+        else:
+            messagebox.showwarning("Warning", "먼저 이미지를 처리한 후 모자이크를 적용하세요.")    
+
 
     def get_latest_exp_folder(self):
         # runs/detect 폴더 내 가장 최근의 exp 폴더를 찾음
@@ -152,39 +188,34 @@ class YOLOApp:
             height, width, _ = frame.shape
             max_height = 400  # 최대 높이
             max_width = 800  # 최대 너비
-            scale = min(max_height / height, max_width / width)
 
-            new_width = int(width * scale)
-            new_height = int(height * scale)
-            frame = cv2.resize(frame, (new_width, new_height))
+            if height > max_height or width > max_width:
+                scaling_factor = min(max_height / height, max_width / width)
+                frame = cv2.resize(frame, (int(width * scaling_factor), int(height * scaling_factor)))
 
-            img = Image.fromarray(frame)
-            imgtk = ImageTk.PhotoImage(image=img)
+            # 이미지를 PhotoImage로 변환하여 라벨에 표시
+            img_tk = ImageTk.PhotoImage(image=Image.fromarray(frame))
+            self.image_label.config(image=img_tk)
+            self.image_label.image = img_tk
 
-            # 영상 라벨에 프레임을 업데이트
-            self.image_label.config(image=imgtk)
-            self.image_label.image = imgtk
-
-            # 다음 프레임 업데이트
-            self.after_id = self.root.after(self.delay, self.update_frame)
+            self.after_id = self.root.after(self.delay, self.update_frame)  # 다음 프레임 업데이트 예약
         else:
-            # 영상이 끝나면 처음으로 돌아감
-            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # 첫 프레임으로 돌아가서 반복
-            self.update_frame()  # 반복 재생을 위해 업데이트 호출
+            self.stop_video()
+
+    def stop_video(self):
+        if self.cap is not None:
+            self.cap.release()
+        self.is_playing = False
 
     def reset_video_display(self):
-        # 영상 라벨과 관련된 이미지 초기화
+        # 영상 및 이미지 초기화
+        if self.cap is not None:
+            self.cap.release()
         self.image_label.config(image='')
-        if self.cap:
-            self.cap.release()  # 이전 영상 스트림 종료
-            self.cap = None
-            self.is_playing = False  # 재생 상태 초기화
-            if self.after_id:
-                self.root.after_cancel(self.after_id)  # 이전의 after 호출 취소
-                self.after_id = None
-            self.status_label.config(text="")  # 상태 레이블 초기화
+        self.is_playing = False
+        self.status_label.config(text="")
 
-# Tkinter 창 실행
-root = tk.Tk()
-app = YOLOApp(root)
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = YOLOApp(root)
+    root.mainloop()
