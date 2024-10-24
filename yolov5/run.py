@@ -11,13 +11,27 @@ class YOLOApp:
     def __init__(self, root):
         self.root = root
         self.root.title("YOLO 유해 오브젝트 감지 프로그램")
-        self.root.geometry("1080x800")
+        self.root.geometry("1300x1080")
         self.root.configure(bg="#f0f0f0")  # 배경색
 
         # 제목 레이블
         title_label = tk.Label(root, text="유해 오브젝트 감지", font=("Arial", 20, "bold"), bg="#f0f0f0")
         title_label.pack(pady=20)
+        
+        # 사용 안내 레이블 추가
+        guide_text = """
+        1. 파일 형식: 이미지는 jpg, png, jpeg  /  영상은 gif, mp4, avi의 파일 형식이 지원됩니다.
+        
+        2. 모자이크 기능은 이미지에 한해서 지원됩니다.
+        
+        3. 영상이 길 경우 처리가 오래 걸릴 수 있습니다.
 
+        4. 6가지 레이블을 감지합니다. 총, 칼, 혈흔, 흡연, 음주, 자살암시, 부적절한 제스쳐(미국식 손가락 욕)
+
+        5. 모델의 특성상 작은 오브젝트는 감지하기 어려울 수 있습니다.
+        """
+        guide_label = tk.Label(root, text=guide_text, font=("Arial", 12), bg="#f0f0f0", justify="left", anchor="w")
+        guide_label.pack(padx=20, pady=10, anchor="w")
         # 이미지/영상 선택 버튼
         self.upload_btn = tk.Button(root, text="이미지/영상 파일 업로드", command=self.upload_file, font=("Arial", 14), bg="#4CAF50", fg="white", padx=20, pady=10)
         self.upload_btn.pack(pady=20)
@@ -25,6 +39,7 @@ class YOLOApp:
         # 모자이크 버튼 추가
         self.mosaic_btn = tk.Button(root, text="모자이크 적용", command=self.apply_mosaic, font=("Arial", 14), bg="#FF5722", fg="white", padx=20, pady=10)
         self.mosaic_btn.pack(pady=20)
+        self.mosaic_btn.config(state=tk.DISABLED)  # 초기에는 비활성화
 
         # 처리 상태 레이블
         self.status_label = tk.Label(root, text="", font=("Arial", 12, "italic"), bg="#f0f0f0")
@@ -73,6 +88,10 @@ class YOLOApp:
 
             # YOLO 처리 완료 후 결과를 표시
             self.display_results(file_path)
+            
+            latest_exp_path = self.get_latest_exp_folder()
+            if latest_exp_path:
+                messagebox.showinfo("결과 저장 폴더", f"결과가 저장된 폴더: {latest_exp_path}")
 
         except Exception as e:
             self.status_label.config(text="오류 발생")  # 오류 메시지 업데이트
@@ -98,17 +117,20 @@ class YOLOApp:
                 result_video_path = os.path.join(latest_exp_path, os.path.basename(file_path))  # 결과 영상 파일 경로
                 self.video_path = result_video_path
                 self.play_video(result_video_path)  # 결과 영상 재생
+                self.mosaic_btn.config(state=tk.DISABLED)  # 영상 선택 시 모자이크 비활성화
             elif file_extension == '.gif':
                 result_video_path = os.path.join(latest_exp_path, os.path.splitext(os.path.basename(file_path))[0] + '.mp4')
                 if os.path.exists(result_video_path):  # MP4 파일이 존재하는지 확인
                     self.video_path = result_video_path
                     self.play_video(result_video_path)  # 결과 영상 재생
+                    self.mosaic_btn.config(state=tk.DISABLED)  # 영상 선택 시 모자이크 비활성화
                 else:
                     messagebox.showerror("Error", f"결과 MP4 파일을 찾을 수 없습니다: {result_video_path}")
             else:
                 result_image_path = os.path.join(latest_exp_path, os.path.basename(file_path))  # 이미지 결과 파일 경로
                 self.show_image(result_image_path)  # 결과 이미지 표시
                 self.mosaic_image_path = result_image_path  # 모자이크에 사용할 이미지 경로 저장
+                self.mosaic_btn.config(state=tk.NORMAL)  # 이미지 선택 시 모자이크 활성화
 
             self.status_label.config(text="처리 완료!")  # 처리 완료 상태로 변경
         else:
@@ -130,7 +152,6 @@ class YOLOApp:
             self.status_label.config(text="모자이크 적용 완료!")  # 상태 레이블 업데이트
         else:
             messagebox.showwarning("Warning", "먼저 이미지를 처리한 후 모자이크를 적용하세요.")    
-
 
     def get_latest_exp_folder(self):
         # runs/detect 폴더 내 가장 최근의 exp 폴더를 찾음
@@ -169,51 +190,42 @@ class YOLOApp:
         self.is_playing = True  # 영상 재생 상태 설정
 
         # FPS 가져오기
-        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
-        self.delay = int(1000 / self.fps) if self.fps > 0 else 30  # FPS에 맞는 지연 설정
+        fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.delay = int(1000 / fps) if fps > 0 else 100  # FPS에 따라 딜레이 설정
 
-        # 영상 업데이트 함수
-        self.update_frame()
+        self.update_video_frame()  # 첫 번째 프레임 표시
 
-    def update_frame(self):
-        if not self.is_playing:
-            return
+    def update_video_frame(self):
+        if self.is_playing and self.cap.isOpened():
+            ret, frame = self.cap.read()
+            if ret:
+                # 프레임을 RGB로 변환하고 PIL 이미지로 변환
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame)
+                img = img.resize((1080, 720), Image.LANCZOS)  # 크기 조정
+                img_tk = ImageTk.PhotoImage(img)
 
-        ret, frame = self.cap.read()
-        if ret:
-            # OpenCV 이미지를 Tkinter가 처리할 수 있는 포맷으로 변환
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # 이미지 라벨에 표시
+                self.image_label.config(image=img_tk)
+                self.image_label.image = img_tk
 
-            # 이미지 크기 조정
-            height, width, _ = frame.shape
-            max_height = 400  # 최대 높이
-            max_width = 800  # 최대 너비
-
-            if height > max_height or width > max_width:
-                scaling_factor = min(max_height / height, max_width / width)
-                frame = cv2.resize(frame, (int(width * scaling_factor), int(height * scaling_factor)))
-
-            # 이미지를 PhotoImage로 변환하여 라벨에 표시
-            img_tk = ImageTk.PhotoImage(image=Image.fromarray(frame))
-            self.image_label.config(image=img_tk)
-            self.image_label.image = img_tk
-
-            self.after_id = self.root.after(self.delay, self.update_frame)  # 다음 프레임 업데이트 예약
-        else:
-            self.stop_video()
-
-    def stop_video(self):
-        if self.cap is not None:
-            self.cap.release()
-        self.is_playing = False
+                # 다음 프레임 업데이트
+                self.after_id = self.root.after(self.delay, self.update_video_frame)
+            else:
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # 영상의 첫 프레임으로 설정
+                self.update_video_frame()  # 다시 첫 프레임을 업데이트
 
     def reset_video_display(self):
-        # 영상 및 이미지 초기화
-        if self.cap is not None:
+        # 영상 스트림 해제 및 이미지 라벨 초기화
+        if self.cap:
             self.cap.release()
-        self.image_label.config(image='')
+            self.cap = None
         self.is_playing = False
-        self.status_label.config(text="")
+        if self.after_id:
+            self.root.after_cancel(self.after_id)  # 다음 프레임 업데이트 중지
+            self.after_id = None
+        self.image_label.config(image='')  # 이미지 라벨 초기화
+        self.mosaic_btn.config(state=tk.DISABLED)  # 모자이크 버튼 비활성화
 
 if __name__ == "__main__":
     root = tk.Tk()
